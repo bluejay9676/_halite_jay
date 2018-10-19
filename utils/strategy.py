@@ -89,12 +89,15 @@ class NaiveStrategy:
         if 
         if ship_status[STATUS] == DEFAULT_STATE:
             # go after closest/largest halite
-        
+            
+            return move
         elif ship_status[STATUS] == ACTION_STATE:
             # return to deload point
-        
+            # check if deload point still there.
+            pass
         elif ship_status[STATUS] == RUN_STATE:
             # run in the opposite direction
+            pass
 
     
     def handle_guard(self, ship):
@@ -106,7 +109,7 @@ class NaiveStrategy:
     def handle_dropoff(self, ship):
         pass
     
-    def new_ship(self, ship):
+    def add_new_ship(self, ship):
         if self.new_ship_queue:
             self.ship_dict[ship.id] = self.new_ship_queue.pop(0)
         else:
@@ -122,21 +125,26 @@ class NaiveStrategy:
                 if self.ship_dict[ship_id][UNIT_INFO] == WORKER:
                     # Update the dropoff ship's num_worker value.
                     deloading_ship = self.ship_dict[ship_id][DELOAD_SHIP]
-                    if deloading_ship:
+                    if me.has_ship(deloading_ship.id) and deloading_ship:
                         self.ship_dict[deloading_ship.id][NUM_WORKERS] -= 1
                 del self.ship_dict[ship_id]
 
     def update_spawn_queue(self):
         # TODO what type of unit should be spawned?
-        
+        # TODO spawning only WORKERS for now.
+        me = self.game.me
         if game.turn_number <= 200 and me.halite_amount >= constants.SHIP_COST:
-            command_queue.append(me.shipyard.spawn())
+            spawn_info = DEFAULT_WORKER
+            self.spawn_queue.append(spawn_info)
 
     def update_new_ship_queue(self, spawn_info):
-        # add to new_ship_queue
-        pass
-            
-            
+        me = self.game.me
+        if spawn_info[UNIT_INFO] == WORKER:
+            deloading_ship = spawn_info[DELOAD_SHIP]
+            if me.has_ship(deloading_ship.id) and deloading_ship:
+                self.ship_dict[deloading_ship.id][NUM_WORKERS] += 1
+        self.new_ship_queue.append(spawn_info)
+
 
     def play_turn(self):
         """
@@ -154,7 +162,7 @@ class NaiveStrategy:
         
         for ship in me.get_ships():
             if ship.id not in self.ship_dict:
-                self.new_ship(ship)
+                self.add_new_ship(ship)
             unit_info = self.ship_dict[ship.id][UNIT_INFO]
             move = None
             if unit_info == WORKER:
