@@ -36,8 +36,9 @@ SPAWN = 'spawn'
 IDLE = 'idle'
 
 class GreedyStrategy:
-    def __init__(self, game,  halite_search_thres, search_radius=30):
+    def __init__(self, game,  halite_search_thres, max_halite, search_radius=30):
         self.game = game
+        self.max_halite = max_halite
         self.turn = 1
         self.ships_without_actions = set()
         self.possible_ship_actions = [FORAGE, DELOAD]
@@ -63,18 +64,19 @@ class GreedyStrategy:
 
         for ship in me.get_ships():
             if ship.id not in self.ship_status:
+                logging.info("Ship {} has been found.".format(ship.id))
                 self.ship_status[ship.id] = {
                     ACTION : None,
                     TARGET : None
-                }     
+                }
 
         # 2. Update the ship status dict
         for ship_id in list(self.ship_status.keys()):
-            ship = me.get_ship(ship_id)
             if not me.has_ship(ship_id):
                 logging.info("Ship {} has been lost.".format(ship_id))
                 del self.ship_status[ship_id]
             else:
+                ship = me.get_ship(ship_id)
                 closest_home = me.shipyard
                 closest_home_distance = game_map.calculate_distance(ship.position, me.shipyard.position)
                 for dropoff in me.get_dropoffs():
@@ -157,12 +159,12 @@ class GreedyStrategy:
         if action == FORAGE:
             return -dist_closest_mine * 10 + -current_halite * 5
         elif action == DELOAD:
-            return -dist_closest_home * 10 + current_halite * 10 + int(dist_closest_home == 0) * -10000
+            return -dist_closest_home * 10 + int(current_halite >= self.max_halite / 4 or ship.is_full) * 1000 + int(dist_closest_home == 0) * -10000
 
     def evaluate_direction(self, ship, move):
         me = self.game.me
         game_map = self.game.game_map
-        
+
         target = self.ship_status[ship.id][TARGET]
         pos_after_move = ship.position.directional_offset(move)
         halite_after_move = game_map[pos_after_move].halite_amount * 0.25 + \
@@ -182,13 +184,11 @@ class GreedyStrategy:
             num_allies * 5 + sum_halites * 2
         return score
 
-    def evaluate_shipyard_action(self, action):
+    def evaluate_spawn(self):
         me = self.game.me
         game_map = self.game.game_map
-        
-        score = self.turn * -10 + me.halite_amount * 5 + game_map[me.shipyard].is_occupied * -10000
-        return score if action == SPAWN else -score
-
+        return int(me.halite_amount >= constants.SHIP_COST) * 10 + (1 if self.turn <= 100 else -1) * 15 + me.halite_amount * 5 + \
+            int(game_map[me.shipyard].is_occupied) * -10000 + int(me.halite_amount < constants.SHIP_COST) * -10000
 
     def calculate_move(self, ship, action):
         me = self.game.me
@@ -205,7 +205,6 @@ class GreedyStrategy:
                     best_score = score
             pos_after_move = ship.position.directional_offset(best_move)
             game_map[pos_after_move].mark_unsafe(ship)
-            logging.info("Ship {} will do {}".format(ship.id, move))
             return ship.move(best_move)
 
         # TODO If switching to dropoff
@@ -241,30 +240,25 @@ class GreedyStrategy:
                         best_score = score
                         best_ship = ship
                         best_action = action
-            logging.info('Action for {} : {}'.format(ship.id, best_action))
-            self.ship_status[ship.id][TARGET] = \
-                self.ship_status[ship.id][MINE] if best_action == FORAGE else self.ship_status[ship.id][HOME]
-            logging.info('Target for {} : {}'.format(ship.id, self.ship_status[ship.id][TARGET]))
-            self.ship_status[ship.id][ACTION] = best_action
+            logging.info('Action for {} : {}'.format(best_ship.id, best_action))
+            self.ship_status[best_ship.id][TARGET] = \
+                self.ship_status[best_ship.id][MINE] if best_action == FORAGE else self.ship_status[best_ship.id][HOME]
+            logging.info('Target for {} : {}'.format(best_ship.id, self.ship_status[best_ship.id][TARGET]))
+            self.ship_status[best_ship.id][ACTION] = best_action
             greedy_order.append((best_ship, best_action))
             self.ships_without_actions.remove(best_ship)
 
         command_queue = []
         # Calculate moves
         for ship, action in greedy_order:
+            logging.info('Ship {} at {}'.format(ship.id, ship.position))
             best_move = self.calculate_move(ship, action)
             logging.info('Move for {} : {}'.format(ship.id, best_move))
             command_queue.append(best_move)
 
-        best_action = None
-        best_score = -987654321
-        for action in self.possible_shipyard_actions:
-            score = self.evaluate_shipyard_action(action)
-            if score > best_score:
-                best_score = score
-                best_action = action
-        logging.info("Shipyard will {}...".format(best_action))
-        if best_action == SPAWN and me.halite_amount >= constants.SHIP_COST and not game_map[me.shipyard].is_occupied:
+        do_spawn = self.evaluate_spawn() > 0
+        if do_spawn:
+            logging.info("Shipyard will spawn...")
             command_queue.append(me.shipyard.spawn())
             
 
