@@ -17,7 +17,8 @@ import random
 #   (print statements) are reserved for the engine-bot communication.
 import logging
 
-from utils.greedy_strategy import GreedyStrategy
+# from utils.greedy_strategy import GreedyStrategy
+from greedy_strategy import GreedyStrategy
 
 """ <<<Game Begin>>> """
 ship_status = {}
@@ -26,14 +27,14 @@ game = hlt.Game()
 # At this point "game" variable is populated with initial map data.
 # This is a good place to do computationally expensive start-up pre-processing.
 # As soon as you call "ready" function below, the 2 second per turn timer will start.
-game.ready("MyPythonBot")
+game.ready("shibal+++_+++bot")
 
 # Now that your bot is initialized, save a message to yourself in the log file with some important information.
 #   Here, you log here your id, which you can always fetch from the game object by using my_id.
 logging.info("Successfully created bot! My Player ID is {}.".format(game.my_id))
 
 """ <<<Game Loop>>> """
-strategy = GreedyStrategy(game)
+strategy = GreedyStrategy(game, constants.MAX_HALITE / 3)
 
 while True:
     strategy.play_turn()
