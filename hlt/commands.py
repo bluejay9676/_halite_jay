@@ -7,7 +7,7 @@ SOUTH = 's'
 EAST = 'e'
 WEST = 'w'
 STAY_STILL = 'o'
-GENERATE = 'g \n g'
+GENERATE = 'g'
 CONSTRUCT = 'c'
 MOVE = 'm'
 
