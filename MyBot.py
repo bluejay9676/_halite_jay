@@ -34,7 +34,8 @@ game.ready("shibal+++_+++bot")
 logging.info("Successfully created bot! My Player ID is {}.".format(game.my_id))
 
 """ <<<Game Loop>>> """
-strategy = GreedyStrategy(game, constants.MAX_HALITE / 3, constants.MAX_HALITE)
+logging.info("MAX HALITE {}".format(constants.MAX_HALITE))
+strategy = GreedyStrategy(game, constants.MAX_HALITE / 9, constants.MAX_HALITE)
 
 while True:
     strategy.play_turn()
