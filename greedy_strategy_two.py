@@ -155,11 +155,10 @@ class GreedyStrategy:
                         sum_dist_enemies += dist
                 sum_halites += curr_halite_amount
                 
-                if ship.position == home_pos and self.ship_status[ship.id][ACTION] == FORAGE and \
-                (abs(i) >= 5 and abs(j) >= 5):
+                if ship.position == home_pos and self.ship_status[ship.id][ACTION] == FORAGE:
                     # normalized_halite_amount = curr_halite_amount * 1.2 if curr_halite_amount >= self.max_halite / 2 else curr_halite_amount
-                    net_profit = (ship.halite_amount * (0.9 ** dist) + \
-                        curr_halite_amount * 0.92) * (0.9 ** game_map.calculate_distance(new_pos, home_pos))
+                    net_profit = (ship.halite_amount * 0.1) + \
+                        curr_halite_amount * (0.9 ** game_map.calculate_distance(new_pos, home_pos))
                     if net_profit >= 50 and net_profit > best_net_profit and curr_cell not in self.targets.values():
                         best_net_profit = net_profit
                         best_mine = curr_cell
@@ -227,24 +226,8 @@ class GreedyStrategy:
                                 ship.halite_amount
             is_occupied = 0
 
-        # TODO add bonus point calculation
-        # num_enemies, sum_dist_enemies, num_allies,\
-        # sum_dist_allies, sum_halites, closest_mine, closest_mine_distance \
-        # = self._search_surrounding(pos_after_move, 10)
-
-        score = halite_after_move * 10 + -distance_target * 10000
+        score = halite_after_move * 10 + -distance_target * 5000
         return score
-
-    def evaluate_spawn(self):
-        me = self.game.me
-        game_map = self.game.game_map
-        num_ships = len(self.ship_status)
-        # TODO halites currently possess?
-        # cost_per_ship = num_ships ** 1.67 if num_ships <= 7 else num_ships ** 2.2
-        cost_per_ship = 0 if num_ships <= 16 else 987654321
-        profit_per_ship = 100 if num_ships <= 16 else (num_ships * 25 - self.turn * 0.25)
-        net_profit_spawn = profit_per_ship - cost_per_ship
-        return net_profit_spawn
 
     def calculate_move(self, ship, action):
         me = self.game.me
@@ -272,6 +255,18 @@ class GreedyStrategy:
         logging.info("Ship {} was at {} will do {} and be at {}".format(ship.id, ship.position, best_move, pos_after_move))
         game_map[pos_after_move].mark_unsafe(ship)
         return ship.move(best_move)
+
+
+    def evaluate_spawn(self):
+        me = self.game.me
+        game_map = self.game.game_map
+        num_ships = len(self.ship_status)
+        # TODO halites currently possess?
+        # cost_per_ship = num_ships ** 1.67 if num_ships <= 7 else num_ships ** 2.2
+        cost_per_ship = 0 if num_ships <= 16 else 987654321
+        profit_per_ship = 100 if num_ships <= 16 else (num_ships * 25 - self.turn * 0.25)
+        net_profit_spawn = profit_per_ship - cost_per_ship
+        return net_profit_spawn
 
 
     def play_turn(self):

@@ -18,7 +18,7 @@ import random
 import logging
 
 # from utils.greedy_strategy import GreedyStrategy
-from greedy_strategy import GreedyStrategy
+from greedy_strategy_two import GreedyStrategy
 
 """ <<<Game Begin>>> """
 ship_status = {}
