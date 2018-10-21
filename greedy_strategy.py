@@ -36,7 +36,7 @@ SPAWN = 'spawn'
 IDLE = 'idle'
 
 class GreedyStrategy:
-    def __init__(self, game max_halite, search_radius=80):
+    def __init__(self, game, max_halite, search_radius=80):
         self.game = game
         self.max_halite = max_halite
         self.turn = 1
@@ -152,7 +152,7 @@ class GreedyStrategy:
                         sum_dist_enemies += dist
                 
                 net_profit = (ship.halite_amount * (0.9 ** dist) + \
-                    curr_cell.halite_amount * 1.23) * (0.9 ** dist)
+                    curr_cell.halite_amount * 0.85) * (0.9 ** dist)
                 if net_profit > best_net_profit and curr_cell not in self.targets:
                     best_net_profit = net_profit
                     best_mine = curr_cell
@@ -173,7 +173,7 @@ class GreedyStrategy:
     def evaluate_action(self, ship):
         dist_closest_home = self.ship_status[ship.id][DIST_HOME]
         current_halite = ship.halite_amount
-        halite_when_home = current_halite * (0.9 ** dist_closest_home)
+        halite_when_home = (current_halite * 0.85) * (0.9 ** dist_closest_home)
         return halite_when_home
 
     def evaluate_direction(self, ship, move):
@@ -193,7 +193,7 @@ class GreedyStrategy:
         # = self._search_surrounding(pos_after_move, 20)
 
         score = halite_after_move * 7 + \
-            -distance_target * 5000
+            -distance_target * 200
             # int(check_collision) * -1000000
             # num_enemies * -3 + \
             # num_allies * 3 + sum_halites * 2
@@ -205,7 +205,7 @@ class GreedyStrategy:
         num_ships = len(self.ship_status)
         # TODO halites currently possess?
         cost_per_ship = num_ships ** 1.67 if num_ships <= 7 else num_ships ** 2.2
-        profit_per_ship = 100 if num_ships <= 5 else (num_ships * 100 - self.turn * 0.47)
+        profit_per_ship = 100 if num_ships <= 5 else (num_ships * 25 - self.turn * 0.3)
         net_profit_spawn = profit_per_ship - cost_per_ship 
         return net_profit_spawn
 
@@ -247,6 +247,8 @@ class GreedyStrategy:
 
         # Calculate orders
         # TODO Calculate and sort.
+        # score_thres = self.turn
+
         greedy_order = [] # (ship, action, score) pair
         while len(self.ships_without_actions) > 0:
             best_ship = None
@@ -260,7 +262,7 @@ class GreedyStrategy:
                 if score > best_score:
                     best_score = score
                     best_ship = ship
-                    best_action = FORAGE if score < 5 else DELOAD
+                    best_action = FORAGE if score < 20 else DELOAD
             logging.info('Ship {} has {} halites'.format(best_ship.id, best_ship.halite_amount))
             logging.info('Action for {} : {}'.format(best_ship.id, best_action))
             self.ship_status[best_ship.id][TARGET] = \
