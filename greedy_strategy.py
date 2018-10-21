@@ -25,6 +25,7 @@ NUM_ALLIES = 'num_allies'
 MEAN_DIST_ENE = 'mean_dist_enemies'
 MEAN_DIST_ALL = 'mean_dist_allies'
 SUM_HAL = 'sum_halites'
+NET_PROF = 'net_profit'
 
 ## Actions for ships
 FORAGE = 'forage'
@@ -86,20 +87,21 @@ class GreedyStrategy:
                 self.ship_status[ship.id][HOME] = closest_home
                 self.ship_status[ship.id][DIST_HOME] = closest_home_distance
                 num_enemies, sum_dist_enemies, num_allies, \
-                    sum_dist_allies, sum_halites, closest_mine, closest_mine_distance = self._search_surrounding(ship, ship.position)
+                    sum_dist_allies, sum_halites, best_mine, best_mine_distance, best_net_profit = self._search_surrounding(ship, ship.position)
 
                 self.ship_status[ship.id] = {
                     ACTION : self.ship_status[ship.id][ACTION],
                     TARGET : self.ship_status[ship.id][TARGET],
-                    MINE : closest_mine,
+                    MINE : best_mine,
                     HOME : closest_home,
-                    DIST_MINE : closest_mine_distance,
+                    DIST_MINE : best_mine_distance,
                     DIST_HOME : closest_home_distance,
                     NUM_ENEMIES : num_enemies,
                     NUM_ALLIES : num_allies,
                     MEAN_DIST_ENE : sum_dist_enemies / num_enemies if num_enemies else 987654321,
                     MEAN_DIST_ALL : sum_dist_allies / num_allies if num_allies else 987654321,
-                    SUM_HAL : sum_halites
+                    SUM_HAL : sum_halites,
+                    NET_PROF : best_net_profit
                 }
 
     
@@ -154,7 +156,7 @@ class GreedyStrategy:
                         sum_dist_enemies += dist
                 home_pos = self.ship_status[ship.id][HOME].position
                 net_profit = (ship.halite_amount * (0.9 ** dist) + \
-                    curr_cell.halite_amount * 1.2) * (0.9 ** game_map.calculate_distance(new_pos, home_pos))
+                    curr_cell.halite_amount) * (0.9 ** game_map.calculate_distance(new_pos, home_pos))
                 if net_profit > best_net_profit and curr_cell not in self.targets:
                     best_net_profit = net_profit
                     best_mine = curr_cell
@@ -170,13 +172,10 @@ class GreedyStrategy:
         else:
             self.targets.append(best_mine)
         return num_enemies, sum_dist_enemies, num_allies, sum_dist_allies, \
-            sum_halites, best_mine, best_mine_distance
+            sum_halites, best_mine, best_mine_distance, best_net_profit
 
     def evaluate_action(self, ship):
-        dist_closest_home = self.ship_status[ship.id][DIST_HOME]
-        current_halite = ship.halite_amount
-        halite_when_home = (current_halite * 1.2) * (0.9 ** dist_closest_home)
-        return halite_when_home
+        return self.ship_status[ship.id][NET_PROF]
 
     def evaluate_direction(self, ship, move):
         me = self.game.me
@@ -197,7 +196,6 @@ class GreedyStrategy:
 
         score = halite_after_move * 10 + \
             -distance_target * 5000
-            # int(check_collision) * -1000000
             # num_enemies * -3 + \
             # num_allies * 3 + sum_halites * 2
         return score
