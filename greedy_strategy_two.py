@@ -53,7 +53,6 @@ class GreedyStrategy:
                               #         --- # of allies around me, sum of distance from the allies
                               #         --- sum of halites in the search area.
         self.targets = {} # ship.id : pos
-        self.next_positions = {} # ship.id : pos
     
     def preprocess(self):
         me = self.game.me
@@ -110,7 +109,6 @@ class GreedyStrategy:
     
     def postprocess(self):
         self.turn += 1
-        self.next_positions = {}
 
     def _search_surrounding(self, ship, radii):
         """
@@ -155,11 +153,11 @@ class GreedyStrategy:
                         sum_dist_enemies += dist
                 sum_halites += curr_halite_amount
                 
-                if ship.position == home_pos and self.ship_status[ship.id][ACTION] == FORAGE:
+                if self.ship_status[ship.id][ACTION] == FORAGE and (ship.position == home_pos or not self.targets.get(ship.id)):
                     # normalized_halite_amount = curr_halite_amount * 1.2 if curr_halite_amount >= self.max_halite / 2 else curr_halite_amount
                     net_profit = (ship.halite_amount * 0.1) + \
                         curr_halite_amount * (0.9 ** game_map.calculate_distance(new_pos, home_pos))
-                    if net_profit >= 50 and net_profit > best_net_profit and curr_cell not in self.targets.values():
+                    if net_profit >= 20 and net_profit > best_net_profit and curr_cell not in self.targets.values():
                         best_net_profit = net_profit
                         best_mine = curr_cell
                         best_mine_distance = dist
@@ -195,16 +193,14 @@ class GreedyStrategy:
         halite_left = ship.halite_amount
         is_forage = (
             (is_prev_action_forage and not is_at_mine) or
-            (is_prev_action_forage and is_at_mine and mine_halite > 20) or
-            is_at_home or
+            (is_prev_action_forage and is_at_mine and mine_halite > 0) or
+            is_at_home or 
             (halite_left * (0.9 ** dist_home) <= 0)
         ) and not incoming_enemy_ship
         if is_forage:
-            # positive
             expected_profit = self.ship_status[ship.id][NET_PROF] * 0.95
             return expected_profit * 1000
         else: # deload
-            # negative
             dist_closest_home = self.ship_status[ship.id][DIST_HOME]
             current_halite = ship.halite_amount
             halite_when_home = (current_halite * 1.2) * (0.9 ** dist_closest_home)
@@ -217,15 +213,11 @@ class GreedyStrategy:
 
         target = self.ship_status[ship.id][TARGET]
         pos_after_move = ship.position.directional_offset(move)
-        halite_after_move = game_map[pos_after_move].halite_amount * 0.25 + \
-                                ship.halite_amount * 0.9
+        halite_after_move = ship.halite_amount - game_map[ship.position].halite_amount * 0.1
         distance_target = game_map.calculate_distance(pos_after_move, target.position)
-        is_occupied = int(game_map[pos_after_move].is_occupied)
         if move == Direction.Still:
             halite_after_move = game_map[pos_after_move].halite_amount * 0.25 + \
                                 ship.halite_amount
-            is_occupied = 0
-
         score = halite_after_move * 10 + -distance_target * 5000
         return score
 
@@ -246,12 +238,10 @@ class GreedyStrategy:
             for move in self.possible_directions:
                 pos_after_move = ship.position.directional_offset(move)
                 score = self.evaluate_direction(ship, move, action)
-                # if score > best_score and not game_map[pos_after_move].is_occupied:
-                if score > best_score and pos_after_move not in self.next_positions.values() and not game_map[pos_after_move].is_occupied:
+                if score > best_score and not game_map[pos_after_move].is_occupied:
                     best_move = move
                     best_score = score
         pos_after_move = ship.position.directional_offset(best_move)
-        self.next_positions[ship.id] = pos_after_move
         logging.info("Ship {} was at {} will do {} and be at {}".format(ship.id, ship.position, best_move, pos_after_move))
         game_map[pos_after_move].mark_unsafe(ship)
         return ship.move(best_move)
@@ -302,6 +292,7 @@ class GreedyStrategy:
             self.ship_status[ship.id][TARGET] = \
                 self.ship_status[ship.id][MINE] if action == FORAGE else self.ship_status[ship.id][HOME]
             self.ship_status[ship.id][ACTION] = action
+            self.targets.pop(ship.id, None)
             greedy_order.append((ship, action))
             logging.info('Ship {} has {} halites'.format(ship.id, ship.halite_amount))
             logging.info('Action for {} : {}'.format(ship.id, action))
