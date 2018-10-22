@@ -53,6 +53,7 @@ class GreedyStrategy:
                               #         --- sum of halites in the search area.
         self.mine_targets = {} # ship.id : pos
         self.next_positions = {} # ship.id : pos
+        self.merge_flag = False
     
     def preprocess(self):
         me = self.game.me
@@ -107,6 +108,8 @@ class GreedyStrategy:
     def postprocess(self):
         self.turn += 1
         self.next_positions = {}
+        if self.turn >= constants.MAX_TURNS - 20:
+            self.merge_flag = True
 
     def _search_surrounding(self, ship, radii):
         """
@@ -188,6 +191,10 @@ class GreedyStrategy:
         distance_mine_home = game_map.calculate_distance(mine.position, home.position) + 1
         mine_halite_amount = game_map[mine.position].halite_amount
 
+        if self.merge_flag:
+            # should always return negative
+            return -distance_here_home
+
         at_mine = int(distance_here_mine == 1 and mine.halite_amount > 20) * 2000
 
         expected_profit_forage = (ship.halite_amount * (0.5 ** distance_here_mine) + mine_halite_amount) * (0.65 ** distance_mine_home) + at_mine
@@ -235,9 +242,13 @@ class GreedyStrategy:
             pos_after_move = ship.position.directional_offset(move)
             score = self.evaluate_direction(ship, move, action)
             can_pay_cost = ship.halite_amount >= game_map[ship.position].halite_amount / 10 if move != Direction.Still else True
+            is_collision_free = pos_after_move not in self.next_positions.values()
+            if self.merge_flag and pos_after_move == self.ship_status[ship.id][HOME].position:
+                is_collision_free = True
+                score = 987654321
             # logging.info("Ship {}s {} scored {} and can pay the cost: {}".format(ship.id, move, score, can_pay_cost))
             # logging.info("{} is occupied: {}".format(pos_after_move, pos_after_move in self.next_positions.values()))
-            if score > best_score and pos_after_move not in self.next_positions.values() and can_pay_cost:
+            if score > best_score and is_collision_free and can_pay_cost:
                 best_move = move
                 best_score = score
                 # logging.info("Ship {}s update best_score {} best_move {}".format(ship.id, best_score, best_move))
@@ -251,13 +262,14 @@ class GreedyStrategy:
     def evaluate_spawn(self):
         me = self.game.me
         game_map = self.game.game_map
-        num_ships = len(self.ship_status)
+        num_ships = len(self.ship_status) # Should always be even number for each HOME.
         # TODO halites currently possess?
         # cost_per_ship = num_ships ** 1.67 if num_ships <= 7 else num_ships ** 2.2
-        cost_per_ship = 0 if num_ships <= 16 else 987654321
-        profit_per_ship = 100 if num_ships <= 16 else (num_ships * 25 - self.turn * 0.25)
-        net_profit_spawn = profit_per_ship - cost_per_ship
-        return net_profit_spawn
+        # cost_per_ship = 0 if num_ships <= 18 else 987654321
+        # profit_per_ship = 100 if num_ships <= 16 else (num_ships * 25 - self.turn * 0.25)
+        # net_profit_spawn = profit_per_ship - cost_per_ship
+        # return net_profit_spawn
+        return num_ships <= 18
 
 
     def play_turn(self):
