@@ -16,16 +16,15 @@ import logging
 ## Macros
 ACTION = 'action'
 TARGET = 'target'
+MINE_ARCHIVE = 'mine_amount'
 MINE = 'mine'
 HOME = 'home'
-DIST_MINE = 'dist_from_mine'
-DIST_HOME = 'dist_from_home'
 NUM_ENEMIES = 'num_enemies'
 NUM_ALLIES = 'num_allies'
 MEAN_DIST_ENE = 'mean_dist_enemies'
 MEAN_DIST_ALL = 'mean_dist_allies'
 SUM_HAL = 'sum_halites'
-NET_PROF = 'net_profit'
+
 
 ## Actions for ships
 FORAGE = 'forage'
@@ -52,7 +51,8 @@ class GreedyStrategy:
                               #         --- # of enemies around me, sum of distance from the enemies
                               #         --- # of allies around me, sum of distance from the allies
                               #         --- sum of halites in the search area.
-        self.targets = {} # ship.id : pos
+        self.mine_targets = {} # ship.id : pos
+        self.next_positions = {} # ship.id : pos
     
     def preprocess(self):
         me = self.game.me
@@ -69,15 +69,13 @@ class GreedyStrategy:
                         ACTION : FORAGE,
                         TARGET : None,
                         MINE : None,
+                        MINE_ARCHIVE : 0,
                         HOME : None,
-                        DIST_MINE : None,
-                        DIST_HOME : None,
                         NUM_ENEMIES : None,
                         NUM_ALLIES : None,
                         MEAN_DIST_ENE : None,
                         MEAN_DIST_ALL : None,
-                        SUM_HAL : None,
-                        NET_PROF : None
+                        SUM_HAL : None
                     }
 
         # 2. Update the ship status dict
@@ -85,7 +83,7 @@ class GreedyStrategy:
             if not me.has_ship(ship_id):
                 logging.info("Ship {} has been lost.".format(ship_id))
                 self.ship_status.pop(ship_id, None)
-                self.targets.pop(ship_id, None)
+                self.mine_targets.pop(ship_id, None)
             else:
                 ship = me.get_ship(ship_id)
                 closest_home = me.shipyard
@@ -96,7 +94,6 @@ class GreedyStrategy:
                         closest_home = dropoff
                         closest_home_distance = distance
                 self.ship_status[ship.id][HOME] = closest_home
-                self.ship_status[ship.id][DIST_HOME] = closest_home_distance
                 num_enemies, sum_dist_enemies, num_allies, \
                     sum_dist_allies, sum_halites = self._search_surrounding(ship, self.search_radius)
 
@@ -109,6 +106,7 @@ class GreedyStrategy:
     
     def postprocess(self):
         self.turn += 1
+        self.next_positions = {}
 
     def _search_surrounding(self, ship, radii):
         """
@@ -134,9 +132,17 @@ class GreedyStrategy:
         best_mine = None
         best_mine_distance = 987654321
         best_net_profit = -987654321 
+        best_amount = 0
 
         home_pos = self.ship_status[ship.id][HOME].position
         curr_pos = ship.position
+
+        # if self.ship_status[ship.id][ACTION] == DELOAD or \
+        #     (self.ship_status[ship.id][ACTION] == FORAGE and \
+        #     (self.ship_status[ship.id][TARGET] is None \
+        #     or self.ship_status[ship.id][TARGET].halite_amount < self.ship_status[ship.id][MINE_ARCHIVE] * 0.7)):
+        #     self.mine_targets.pop(ship.id, None)
+
         for i in range(-round(radii / 2), round(radii / 2), 1): 
             for j in range(-round(radii / 2), round(radii / 2), 1):
                 new_pos = curr_pos + positionals.Position(i, j)
@@ -152,59 +158,41 @@ class GreedyStrategy:
                         num_enemies += 1
                         sum_dist_enemies += dist
                 sum_halites += curr_halite_amount
-                
-                if self.ship_status[ship.id][ACTION] == FORAGE and (ship.position == home_pos or not self.targets.get(ship.id)):
-                    # normalized_halite_amount = curr_halite_amount * 1.2 if curr_halite_amount >= self.max_halite / 2 else curr_halite_amount
-                    net_profit = (ship.halite_amount * 0.1) + \
-                        curr_halite_amount * (0.9 ** game_map.calculate_distance(new_pos, home_pos))
-                    if net_profit >= 20 and net_profit > best_net_profit and curr_cell not in self.targets.values():
+                # Update mine only when
+                # 1. Deloading
+                # 2. Newly made ship
+                # 3. The current mine is deprecated
+                if self.ship_status[ship.id][ACTION] == DELOAD or (self.ship_status[ship.id][ACTION] == FORAGE and \
+                    (self.ship_status[ship.id][MINE] is None)):
+                    net_profit = (ship.halite_amount * (0.8 ** (dist + 1)) + curr_halite_amount) * (0.8 ** (game_map.calculate_distance(new_pos, home_pos) + 1))
+                    if net_profit > best_net_profit and curr_cell not in self.mine_targets.values():
                         best_net_profit = net_profit
                         best_mine = curr_cell
                         best_mine_distance = dist
-        
+                        best_amount = curr_halite_amount
         if best_mine:
-            self.targets[ship.id] = best_mine
+            self.mine_targets[ship.id] = best_mine
             self.ship_status[ship.id][MINE] = best_mine
-            self.ship_status[ship.id][DIST_MINE] = best_mine_distance
-            self.ship_status[ship.id][NET_PROF] = best_net_profit
+            self.ship_status[ship.id][MINE_ARCHIVE] = best_amount
         return num_enemies, sum_dist_enemies, num_allies, sum_dist_allies, \
             sum_halites
 
     def evaluate_action(self, ship):
-        """
-        return 1 if should forage else 0
-        """
-        # Forage:
-        #   group with or
-        #   - Previous action was FORAGE and the ship is not at its mine.
-        #   - Previous action was FORAGE and the ship is at its mine and the mine not close to empty.
-        #   - ship is at home.
-        # Deload:
-        #   - Previous action was FORAGE and the ship is at its mine and the mine close to empty.
-        #   - Incoming enemy ship.
-        dist_home = self.ship_status[ship.id][DIST_HOME]
-        is_prev_action_forage = int(self.ship_status[ship.id][ACTION] == FORAGE)
-        is_at_mine = int(self.ship_status[ship.id][MINE].position == ship.position)
-        is_at_home = int(self.ship_status[ship.id][HOME].position == ship.position)
-        mine_halite = self.ship_status[ship.id][MINE].halite_amount
-        num_enemies, sum_dist_enemies, num_allies, sum_dist_allies, \
-            sum_halites = self._search_surrounding(ship, 4)
-        incoming_enemy_ship = num_enemies
-        halite_left = ship.halite_amount
-        is_forage = (
-            (is_prev_action_forage and not is_at_mine) or
-            (is_prev_action_forage and is_at_mine and mine_halite > 0) or
-            is_at_home or 
-            (halite_left * (0.9 ** dist_home) <= 0)
-        ) and not incoming_enemy_ship
-        if is_forage:
-            expected_profit = self.ship_status[ship.id][NET_PROF] * 0.95
-            return expected_profit * 1000
-        else: # deload
-            dist_closest_home = self.ship_status[ship.id][DIST_HOME]
-            current_halite = ship.halite_amount
-            halite_when_home = (current_halite * 1.2) * (0.9 ** dist_closest_home)
-            return halite_when_home
+        me = self.game.me
+        game_map = self.game.game_map
+
+        mine = self.ship_status[ship.id][MINE]
+        home = self.ship_status[ship.id][HOME]
+        distance_here_mine = game_map.calculate_distance(ship.position, mine.position) + 1
+        distance_here_home = game_map.calculate_distance(ship.position, home.position) + 1
+        distance_mine_home = game_map.calculate_distance(mine.position, home.position) + 1
+        mine_halite_amount = game_map[mine.position].halite_amount
+
+        at_mine = int(distance_here_mine == 1 and mine.halite_amount > 20) * 2000
+
+        expected_profit_forage = (ship.halite_amount * (0.5 ** distance_here_mine) + mine_halite_amount) * (0.65 ** distance_mine_home) + at_mine
+        expected_profit_deload = ship.halite_amount * (0.82 ** distance_here_home)
+        return expected_profit_forage - expected_profit_deload
 
 
     def evaluate_direction(self, ship, move, action):
@@ -214,11 +202,18 @@ class GreedyStrategy:
         target = self.ship_status[ship.id][TARGET]
         pos_after_move = ship.position.directional_offset(move)
         halite_after_move = ship.halite_amount - game_map[ship.position].halite_amount * 0.1
-        distance_target = game_map.calculate_distance(pos_after_move, target.position)
+
+        ship.halite_amount <= game_map[ship.position].halite_amount / 10
+        curr_dist_target = game_map.calculate_distance(ship.position, target.position) + 1
+        after_distance_target = game_map.calculate_distance(pos_after_move, target.position) + 1
+        next_pos_halite_cost = game_map[pos_after_move].halite_amount
         if move == Direction.Still:
             halite_after_move = game_map[pos_after_move].halite_amount * 0.25 + \
                                 ship.halite_amount
-        score = halite_after_move * 10 + -distance_target * 5000
+        if action == FORAGE and curr_dist_target == 1 and target.halite_amount > 20:
+            halite_after_move *= 10000
+            next_pos_halite_cost *= -10
+        score = halite_after_move * 50 + -next_pos_halite_cost * 2 + -after_distance_target * 3400
         return score
 
     def calculate_move(self, ship, action):
@@ -229,21 +224,27 @@ class GreedyStrategy:
         best_score = -987654321
         
         # TODO If switching to dropoff
+        
+        target = self.ship_status[ship.id][TARGET]
+        # TODO get rid of this comment
+        # if action == FORAGE and game_map.calculate_distance(ship.position, target.position) == 0:
+        #     logging.info("Ship {} at its target.".format(ship.id))
 
         # Evaluate directionals
-        if (game_map[ship.position].halite_amount != 0 and ship.halite_amount <= game_map[ship.position].halite_amount / 10) \
-            or (action == FORAGE and ship.position == self.ship_status[ship.id][MINE].position):
-            best_move = Direction.Still
-        else:
-            for move in self.possible_directions:
-                pos_after_move = ship.position.directional_offset(move)
-                score = self.evaluate_direction(ship, move, action)
-                if score > best_score and not game_map[pos_after_move].is_occupied:
-                    best_move = move
-                    best_score = score
+        for move in self.possible_directions:
+            pos_after_move = ship.position.directional_offset(move)
+            score = self.evaluate_direction(ship, move, action)
+            can_pay_cost = ship.halite_amount >= game_map[ship.position].halite_amount / 10 if move != Direction.Still else True
+            # logging.info("Ship {}s {} scored {} and can pay the cost: {}".format(ship.id, move, score, can_pay_cost))
+            # logging.info("{} is occupied: {}".format(pos_after_move, pos_after_move in self.next_positions.values()))
+            if score > best_score and pos_after_move not in self.next_positions.values() and can_pay_cost:
+                best_move = move
+                best_score = score
+                # logging.info("Ship {}s update best_score {} best_move {}".format(ship.id, best_score, best_move))
+                
         pos_after_move = ship.position.directional_offset(best_move)
+        self.next_positions[ship.id] = pos_after_move
         logging.info("Ship {} was at {} will do {} and be at {}".format(ship.id, ship.position, best_move, pos_after_move))
-        game_map[pos_after_move].mark_unsafe(ship)
         return ship.move(best_move)
 
 
@@ -267,32 +268,21 @@ class GreedyStrategy:
         me = self.game.me
         game_map = self.game.game_map
 
-
+        def can_pay_cost(ship):
+            return ship.halite_amount >= game_map[ship.position].halite_amount / 10
         # Preprocess
         self.preprocess()
 
         # Calculate orders
         ship_score = [(ship, self.evaluate_action(ship)) for ship in me.get_ships()]
-        ship_score = sorted(
-            ship_score, 
-            key=lambda x: (
-                not(x[0].halite_amount < game_map[x[0].position].halite_amount / 10 \
-                and x[0].position != self.ship_status[x[0].id][HOME].position),
-                not(x[0].position == self.ship_status[x[0].id][TARGET].position \
-                if self.ship_status[x[0].id][TARGET] else 0),
-                -x[1],
-            )
-        )
-        # sorted as following order
-        # [can't move][forage target][forage omw][deload home][deload omw]
+        ship_score = sorted(ship_score, key=lambda x: (can_pay_cost(x[0]), -x[1]))
         greedy_order = []
         for ship, score in ship_score:
             logging.info('Ship {} has score {}'.format(ship.id, score))
-            action = FORAGE if score >= 2000 else DELOAD
+            action = FORAGE if score > 0 else DELOAD
             self.ship_status[ship.id][TARGET] = \
                 self.ship_status[ship.id][MINE] if action == FORAGE else self.ship_status[ship.id][HOME]
             self.ship_status[ship.id][ACTION] = action
-            self.targets.pop(ship.id, None)
             greedy_order.append((ship, action))
             logging.info('Ship {} has {} halites'.format(ship.id, ship.halite_amount))
             logging.info('Action for {} : {}'.format(ship.id, action))
@@ -305,7 +295,7 @@ class GreedyStrategy:
             command_queue.append(best_move)
 
         do_spawn = self.evaluate_spawn() > 0
-        if do_spawn and not game_map[me.shipyard].is_occupied and me.halite_amount >= constants.SHIP_COST:
+        if do_spawn and not me.shipyard.position in self.next_positions.values() and me.halite_amount >= constants.SHIP_COST:
             logging.info("Shipyard will spawn...")
             command_queue.append(me.shipyard.spawn())
             
