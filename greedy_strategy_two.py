@@ -118,6 +118,9 @@ class GreedyStrategy:
         if self.turn >= constants.MAX_TURNS - 20:
             self.merge_flag = True
 
+    def check_if_valid_mine(self, ship):
+        pass
+
     def _search_surrounding(self, ship, radii):
         """
         Search within the radii for
@@ -170,6 +173,7 @@ class GreedyStrategy:
                     (self.ship_status[ship.id][MINE] is None or self.ship_status[ship.id][MINE].halite_amount == 0)):
                     dist_mine_home = game_map.calculate_distance(new_pos, home_pos) + 1
                     net_profit = (ship.halite_amount * (0.8 ** (dist + 1)) + curr_halite_amount) * (0.8 ** dist_mine_home)
+                    # TODO use check_if_valid_mine that returns net_profit if its valid.
                     if net_profit > best_net_profit and curr_cell not in self.mine_targets.values():
                         best_net_profit = net_profit
                         best_mine = curr_cell
@@ -183,8 +187,14 @@ class GreedyStrategy:
             sum_halites
 
     def evaluate_dropoff(self, ship):
-        # TODO should I become a dropoff or not?
-        pass
+        """
+        1 if this ship should become a dropoff or not. 0 otherwise
+        """
+        # Check if other ships that are trying to become a dropoff before this ship.
+        # Check if considering the above, there is still a lack of dropoff.
+        # If yes -> dropoff
+        # otherwise -> keep foraging / deloading.
+        return 
 
     def evaluate_offense(self, ship):
         # TODO should I be offensive or not?
@@ -271,11 +281,9 @@ class GreedyStrategy:
     def evaluate_spawn(self):
         me = self.game.me
         game_map = self.game.game_map
-        # 10 per HOME
         num_homes = 1 + len(me.get_dropoffs())
         num_ships = len(self.ship_status) # Should always be even number for each HOME.
-        # return num_ships < num_homes * 17
-        return self.num_spawn < 16
+        return num_ships < num_homes * 10
 
 
     def play_turn(self):
