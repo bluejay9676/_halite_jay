@@ -51,11 +51,13 @@ class GreedyStrategy:
                               #         --- # of enemies around me, sum of distance from the enemies
                               #         --- # of allies around me, sum of distance from the allies
                               #         --- sum of halites in the search area.
-                              #         --- TODO internal id
+                              #         --- internal id
         self.mine_targets = {} # ship.id : pos
         self.next_positions = {} # ship.id : pos
         self.merge_flag = False
         self.num_spawn = 0
+        self.prev_turn_dropoff_spawn = False
+        self.dropoff_locations = []
     
     def preprocess(self):
         me = self.game.me
@@ -82,6 +84,10 @@ class GreedyStrategy:
                         SUM_HAL : None,
                         INTERNAL_ID : None
                     }
+            if self.prev_turn_dropoff_spawn:
+                self.ship_status[ship.id][ACTION] = DROPOFF
+                self.ship_status[ship.id][TARGET] = self._find_dropoff_destination()
+                self.prev_turn_dropoff_spawn = False
             self.ship_status[ship.id][INTERNAL_ID] = i
             i += 1
             
@@ -103,7 +109,7 @@ class GreedyStrategy:
                         closest_home_distance = distance
                 self.ship_status[ship.id][HOME] = closest_home
                 num_enemies, sum_dist_enemies, num_allies, \
-                    sum_dist_allies, sum_halites = self._search_surrounding(ship, self.search_radius)
+                    sum_dist_allies, sum_halites = self._search_surrounding(ship, self.search_radius, True)
 
                 self.ship_status[ship.id][NUM_ENEMIES] = num_enemies
                 self.ship_status[ship.id][NUM_ALLIES] = num_allies
@@ -118,10 +124,53 @@ class GreedyStrategy:
         if self.turn >= constants.MAX_TURNS - 20:
             self.merge_flag = True
 
-    def check_if_valid_mine(self, ship):
-        pass
+    def _find_dropoff_destination(self):
+        # No overlapping destinations (within N range there shouldn't be multiple dropoffs)
+        # Find the position with the largest amount of halites.
+        #TODO set most haliteful region # search through all ship's sum_hal at its position. Use the position with the largest amount of halite as a target.
+        me = self.game.me
+        game_map = self.game.game_map
 
-    def _search_surrounding(self, ship, radii):
+        def check_sparsity(pos):
+# Make sure the current position isn't close to other dropoff destinations / or one of the dropoff destinations
+            for dropoff_location in self.dropoff_locations:
+                dist = game_map.calculate_distance(pos, dropoff_location)
+                if dist < 20:
+                    return False
+            return True
+
+        destination = None
+        best_halite_amount = 0
+
+        for ship_id in self.ship_status:
+            curr_ship = me.get_ship(ship_id)
+            curr_pos = curr_ship.position
+            halite_amount_near = self.ship_status[ship_id][SUM_HAL]
+            if halite_amount_near > best_halite_amount and check_sparsity(curr_pos):
+                destination = curr_pos
+        if destination:
+            self.dropoff_locations.append(destination)
+        return destination
+
+
+    def check_if_valid_mine(self, ship, candidate_pos):
+        me = self.game.me
+        game_map = self.game.game_map
+        
+        curr_cell = game_map[candidate_pos]
+        curr_halite_amount = curr_cell.halite_amount
+        curr_pos = ship.position
+        home_pos = self.ship_status[ship.id][HOME].position
+        dist = game_map.calculate_distance(curr_pos, candidate_pos)
+        dist_mine_home = game_map.calculate_distance(candidate_pos, home_pos) + 1
+        net_profit = (ship.halite_amount * (0.8 ** (dist + 1)) + curr_halite_amount) * (0.8 ** dist_mine_home)
+
+        if curr_cell not in self.mine_targets.values():
+            return net_profit
+        else:
+            return 0
+
+    def _search_surrounding(self, ship, radii, find_mine=False):
         """
         Search within the radii for
         1. # of enemies around me 
@@ -169,12 +218,10 @@ class GreedyStrategy:
                 # 1. Deloading
                 # 2. Newly made ship
                 # 3. The current mine is deprecated
-                if self.ship_status[ship.id][ACTION] == DELOAD or (self.ship_status[ship.id][ACTION] == FORAGE and \
-                    (self.ship_status[ship.id][MINE] is None or self.ship_status[ship.id][MINE].halite_amount == 0)):
-                    dist_mine_home = game_map.calculate_distance(new_pos, home_pos) + 1
-                    net_profit = (ship.halite_amount * (0.8 ** (dist + 1)) + curr_halite_amount) * (0.8 ** dist_mine_home)
-                    # TODO use check_if_valid_mine that returns net_profit if its valid.
-                    if net_profit > best_net_profit and curr_cell not in self.mine_targets.values():
+                if find_mine and (self.ship_status[ship.id][ACTION] == DELOAD or (self.ship_status[ship.id][ACTION] == FORAGE and \
+                    (self.ship_status[ship.id][MINE] is None or self.ship_status[ship.id][MINE].halite_amount == 0))):
+                    net_profit = self.check_if_valid_mine(ship, new_pos)
+                    if net_profit > best_net_profit:
                         best_net_profit = net_profit
                         best_mine = curr_cell
                         best_mine_distance = dist
@@ -186,15 +233,13 @@ class GreedyStrategy:
         return num_enemies, sum_dist_enemies, num_allies, sum_dist_allies, \
             sum_halites
 
-    def evaluate_dropoff(self, ship):
+    def evaluate_dropoff(self):
         """
-        1 if this ship should become a dropoff or not. 0 otherwise
+        1 if the shipyard should spawn a dropoff ship, 0 otherwise
         """
-        # Check if other ships that are trying to become a dropoff before this ship.
-        # Check if considering the above, there is still a lack of dropoff.
-        # If yes -> dropoff
-        # otherwise -> keep foraging / deloading.
-        return 
+        num_homes = 1 + len(me.get_dropoffs())
+        num_ships = len(self.ship_status) - len(me.get_dropoffs())
+        return num_ships >= num_homes * 10
 
     def evaluate_offense(self, ship):
         # TODO should I be offensive or not?
@@ -255,8 +300,6 @@ class GreedyStrategy:
         best_move = Direction.Still
         best_score = -987654321
         
-        # TODO If switching to dropoff
-        
         target = self.ship_status[ship.id][TARGET]
 
         # Evaluate directionals
@@ -282,7 +325,7 @@ class GreedyStrategy:
         me = self.game.me
         game_map = self.game.game_map
         num_homes = 1 + len(me.get_dropoffs())
-        num_ships = len(self.ship_status) # Should always be even number for each HOME.
+        num_ships = len(self.ship_status) - len(me.get_dropoffs())
         return num_ships < num_homes * 10
 
 
@@ -305,13 +348,17 @@ class GreedyStrategy:
         greedy_order = []
         for ship, score in ship_score:
             logging.info('Ship {} has score {}'.format(ship.id, score))
-            action = FORAGE if score > 0 else DELOAD
-            self.ship_status[ship.id][TARGET] = \
-                self.ship_status[ship.id][MINE] if action == FORAGE else self.ship_status[ship.id][HOME]
-            self.ship_status[ship.id][ACTION] = action
-            greedy_order.append((ship, action))
+            if self.ship_status[ship.id][ACTION] != DROPOFF:
+                if score > 0:
+                    self.ship_status[ship.id][ACTION] = FORAGE
+                    self.ship_status[ship.id][TARGET] = self.ship_status[ship.id][MINE]
+                else:
+                    self.ship_status[ship.id][ACTION] = DELOAD
+                    self.ship_status[ship.id][TARGET] = self.ship_status[ship.id][HOME]
+
+            greedy_order.append((ship, self.ship_status[ship.id][ACTION]))
             logging.info('Ship {} has {} halites'.format(ship.id, ship.halite_amount))
-            logging.info('Action for {} : {}'.format(ship.id, action))
+            logging.info('Action for {} : {}'.format(ship.id, self.ship_status[ship.id][ACTION]))
             logging.info('Ship {}s target : {}'.format(ship.id, self.ship_status[ship.id][TARGET].position))
 
         command_queue = []
@@ -320,12 +367,19 @@ class GreedyStrategy:
             best_move = self.calculate_move(ship, action)
             command_queue.append(best_move)
 
-        do_spawn = self.evaluate_spawn() > 0
-        if do_spawn and not me.shipyard.position in self.next_positions.values() and me.halite_amount >= constants.SHIP_COST:
-            logging.info("Shipyard will spawn...")
-            self.num_spawn += 1
+        # Dropoff evaluate - set as DROPOFF ship so the it wouldn't be accounted
+        # in the above calcuate orders section.
+        dropoff_spawn = self.evaluate_dropoff > 0
+        if dropoff_spawn and not me.shipyard.position in self.next_positions.values() and me.halite_amount >= constants.SHIP_COST:
+            logging.info("Shipyard will spawn a dropoff")
+            self.prev_turn_dropoff_spawn = True
             command_queue.append(me.shipyard.spawn())
-            
+        else:
+            do_spawn = self.evaluate_spawn() > 0
+            if do_spawn and not me.shipyard.position in self.next_positions.values() and me.halite_amount >= constants.SHIP_COST:
+                logging.info("Shipyard will spawn a worker")
+                self.num_spawn += 1
+                command_queue.append(me.shipyard.spawn())
 
         # Postprocessing
         self.postprocess()
