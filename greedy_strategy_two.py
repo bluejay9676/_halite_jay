@@ -125,9 +125,6 @@ class GreedyStrategy:
             self.merge_flag = True
 
     def _find_dropoff_destination(self):
-        # No overlapping destinations (within N range there shouldn't be multiple dropoffs)
-        # Find the position with the largest amount of halites.
-        #TODO set most haliteful region # search through all ship's sum_hal at its position. Use the position with the largest amount of halite as a target.
         me = self.game.me
         game_map = self.game.game_map
 
@@ -237,9 +234,10 @@ class GreedyStrategy:
         """
         1 if the shipyard should spawn a dropoff ship, 0 otherwise
         """
+        me = self.game.me
         num_homes = 1 + len(me.get_dropoffs())
         num_ships = len(self.ship_status) - len(me.get_dropoffs())
-        return num_ships >= num_homes * 10
+        return num_ships >= num_homes * 16
 
     def evaluate_offense(self, ship):
         # TODO should I be offensive or not?
@@ -262,7 +260,7 @@ class GreedyStrategy:
             return -distance_here_home
 
         # Exceptional cases
-        at_mine = int(distance_here_mine == 1 and mine.halite_amount > 20) * 2000
+        at_mine = int(distance_here_mine == 1 and mine.halite_amount > 25) * 2000 # TODO experiment with the left halite amount.
         deload_flag = curr_halite_amount == self.max_halite
         forage_flag = curr_halite_amount == 0
 
@@ -284,6 +282,9 @@ class GreedyStrategy:
         curr_dist_target = game_map.calculate_distance(ship.position, target.position) + 1
         after_distance_target = game_map.calculate_distance(pos_after_move, target.position) + 1
         next_pos_halite_cost = game_map[pos_after_move].halite_amount
+
+        # TODO check the number of enemy ship, sum_halite, etc...
+
         if move == Direction.Still:
             halite_after_move = game_map[pos_after_move].halite_amount * 0.25 + \
                                 ship.halite_amount
@@ -326,7 +327,7 @@ class GreedyStrategy:
         game_map = self.game.game_map
         num_homes = 1 + len(me.get_dropoffs())
         num_ships = len(self.ship_status) - len(me.get_dropoffs())
-        return num_ships < num_homes * 10
+        return num_ships < num_homes * 16
 
 
     def play_turn(self):
